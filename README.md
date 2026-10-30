@@ -1,308 +1,148 @@
 # dksdk
 
-> 当前提供纯 Service 调用入口 `DataWorksScriptService`，不再提供 Controller 或 Swagger 页面。
-> Java 8、无公司 parent、普通 JAR；调用方式和测试入口以 [Service 使用说明](docs/Service使用说明.md) 为准。
-> 以下早期 HTTP 接口、启动打包及 SDK 版本说明仅作历史参考，不适用于当前交付方式。
+面向研发组交付的普通 Maven JAR，提供 DataWorks Service 调用能力。Java 8 / Spring Boot 2.1.14.RELEASE / `javax.validation`，公司 DataWorks SDK 为 `dataworks_public_20240902:4.2.5`。
 
-> 当前代码使用公司 SDK `com.aliyun.dataworks:dataworks_public_20240902:4.2.5`。
-> 本次局部修正见 [优化说明](docs/优化说明.md)，保留原方法、接口参数和全量分页逻辑。下文是早期 demo 文档，部分内容与当前代码有差异。
+Maven 坐标保持为 `com.sinogale:dksdk:1.0.0-SNAPSHOT`；Java 包为 `com.zdph.dksdk`。Maven groupId 与包名不必相同，本次保留已有坐标。
 
-Java 8 / Spring Boot 2.1.14，使用指定依赖 `com.aliyun:alibabacloud-dataworks_public20240518:9.0.11`。
-实际目录为 `D:\work\ph\pom-parent\dksdk`，父 POM 路径为 `../pom.xml`。
-下面示例中的项目、目录、文件和实例 ID 都是占位示例，需替换成实际值。
+## 1. 交付方式
 
-## Java 8 与 Lombok
+这是供宿主应用引用的普通 JAR，无 main 启动类、HTTP 服务或 Boot repackage。没有配置自动加载的 starter；调用方显式导入配置入口。
 
-使用 JDK 8 编译和运行，Maven source/target 保持 1.8。
-Lombok 版本继承父 POM 管理的 1.18.12，编译期生效，最终可执行 JAR 排除 Lombok。
-DTO 和配置类使用 @Getter/@Setter；不可变响应 ApiResponse 和异常类只使用 @Getter。
-boolean 属性由 Lombok 生成 isXxx()，JSON 字段名及 Swagger 文档保持不变。
-含业务逻辑的校验方法、客户端初始化方法仍保留。
+- 单项能力：`DataWorksService`，包括创建、提交、发布、运行、状态与日志查询。
+- 组合能力：`DataWorksFileLifecycleService.createSubmitCheckAndPublish(CreateScriptRequest)`，内部完成创建、提交、轮询提交状态及发布。
+- 底层调用：`DataWorksSdkInvoker`。
+- 字段与示例：[接口文档](docs/DataWorksService接口文档.md)。
 
-内网构建需在 Maven 仓库中准备上述依赖；使用 IDEA 时需启用注解处理。
+`src/main/resources` 不携带应用配置；POM 也排除 application*.yml、application*.yaml、application*.properties。配置示例放在 [docs/examples/dataworks-example.yml](docs/examples/dataworks-example.yml)，不进入 JAR。
 
-## SDK 版本与参考代码的区别
+## 2. 调用方依赖
 
-参考 Blink 程序使用 `com.aliyun.dataworks_20240902.Client`；本项目使用
-`com.aliyun.sdk.service.dataworks_public20240518.AsyncClient`，均使用强类型请求，不采用反射执行任意 action。
+在现有 Spring Boot 2 应用中加入：
 
-| 原调用思路 | 本 SDK 实际调用 |
-| --- | --- |
-| CreateFile | CreateFile |
-| SubmitFile | SubmitFile |
-| GetDeployment | GetDeploymentPackage |
-| DeployFile | DeployFile |
-| ListNodes | ListNodes |
-| ListInstances | ListTaskInstances |
-| GetInstanceLog | GetTaskInstanceLog |
-
-ListNodes 返回的 `id` 是数据开发节点 ID（String），`taskId` 是调度任务 ID（Long）。
-查询实例使用后者，不把 `nodes.get(0).getId()` 当作任务 ID。
-
-## 配置与启动
-
-在运行环境设置：
-
-- `ALIBABA_CLOUD_ACCESS_KEY_ID`、`ALIBABA_CLOUD_ACCESS_KEY_SECRET`：凭据。
-- `ALIBABA_CLOUD_SECURITY_TOKEN`：使用临时凭据时设置。
-- `DATAWORKS_REGION_ID`：默认 cn-hangzhou；私有化环境按实际区域填写。
-- `DATAWORKS_ENDPOINT`：可选，自定义 endpoint 主机名，不带协议/路径；默认由 SDK 解析。
-- `DATAWORKS_PROJECT_ID`：默认项目 ID；也可以在每次请求传 projectId。
-- `SERVER_PORT`：默认 8080。
-
-```powershell
-cd D:\work\ph\pom-parent\dksdk
-mvn test
-mvn package -DskipTests
-java -jar target\dksdk-1.0.0-SNAPSHOT.jar
+```xml
+<dependency>
+    <groupId>com.sinogale</groupId>
+    <artifactId>dksdk</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
 ```
 
-客户端延迟初始化，缺少凭据也能启动应用；首次调用返回 503 DATAWORKS_NOT_CONFIGURED。
-SDK 单例复用并在关闭应用时释放资源；HTTPS，连接超时 5 秒、单次调用等待上限默认 20 秒。
-SDK 自动重试关闭，创建/提交/发布超时可能已经在云端执行，不要直接重复提交。
-未复制参考文件里的账号、密钥、固定节点名，也未实际请求该私有化服务。
-测试通过代表本地流程验证通过，私有化端点是否支持 2024-05-18 版本仍需在目标环境联调确认。
+上例假定宿主已通过 parent/BOM 管理 Spring Boot 版本。未管理版本的调用方需自行指定兼容版本，本库基线是 2.1.14.RELEASE。若宿主已有可用的 `javax.validation.Validator` Bean 和相应 Spring Boot 运行依赖，无需重复添加校验 starter。
 
-## Swagger 接口文档
+本库保留 `spring-boot-starter-validation` 的 provided 范围，Spring 容器与校验实现由宿主提供；Lombok 也仅为编译期 provided 依赖。SLF4J 只依赖 API，由宿主提供日志实现。本库自己的 POM 不添加 Logback/Log4j2 日志绑定。
 
-已引入 springfox-swagger2 和 springfox-swagger-ui，版本统一继承父 POM 的 2.9.2。
-启动应用后访问：
+DataWorks SDK、Fastjson2、Hutool、Swagger 注解和 SLF4J API 是当前代码实际使用的依赖，通过 Maven POM 解析。普通 dksdk JAR 不把这些依赖合并进去；只复制一个 dksdk JAR 不会自动解决依赖。
 
-- Swagger UI：http://localhost:8080/swagger-ui.html
-- Swagger JSON：http://localhost:8080/v2/api-docs
+调用方不需要为了使用本库 DTO 安装 Lombok 编译器处理器；getter/setter 已在构建本库时生成。宿主自己使用 Lombok 的代码仍需自行配置。
 
-如果修改 SERVER_PORT，请相应替换端口。文档无需配置 DataWorks 凭据即可查看。
-Controller 使用 @Api、@ApiOperation、@ApiParam、@ApiResponses；
-请求/响应对象使用 @ApiModel、@ApiModelProperty，包含中文字段说明、示例、必填及枚举值。
-条件必填及三选一约束见字段和接口说明，业务校验辅助属性不会显示在文档中。
+兼容基线为 Spring Boot 2 和 javax.validation；不能直接按 Spring Boot 3 / jakarta.validation 的方式接入。
 
-docs/swagger.json 是本次从运行中的 /v2/api-docs 导出的 Swagger 2.0 文档，
-可导入 Postman/Apifox；已去掉临时验证端口的 host，导入后设置实际服务地址。
-后续调整注解会自动更新在线文档，静态 JSON 需要重新导出。
+## 3. 注册 Bean
 
-## 四个接口
+在宿主应用已有配置类中导入入口：
 
-均为 POST，Content-Type: application/json。请求与响应对象位于 dto 和 dto/response。
-接口类为 controller/DataWorksController.java，文件编排与日志查询分别在 service 下，
-SDK 调用集中在 sdk/DataWorksGateway.java，客户端与外部配置位于 config 下。
+```java
+import com.zdph.dksdk.config.DataWorksSdkConfiguration;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 
-| 接口 | 必要输入 | 核心输出 |
-| --- | --- | --- |
-| /api/dataworks/files/create | fileName、fileType、fileFolderPath、content | fileId |
-| /api/dataworks/files/submit | fileId | deploymentId（提交包） |
-| /api/dataworks/files/deploy | deploymentId；实际发布还需 fileId | state、status、checkingStatus、publishDeploymentId |
-| /api/dataworks/logs/query | taskId / fileName / instanceId 三选一 | logs、totalCount、hasMore、nextPageNumber |
-
-projectId 可使用全局默认值。直接按 instanceId 查询日志不需要 projectId、bizdate。
-未知 JSON 字段、无效 ID、日期及分页参数会返回 HTTP 400，避免拼错参数后查询范围意外扩大。
-顶层 success 仅表示本次接口是否正常处理；提交/发布是否真正完成须查看 data 内的状态。
-
-### 1. 创建脚本
-
-```json
-{
-  "projectId": 10000,
-  "fileName": "python_demo",
-  "fileType": 1221,
-  "fileFolderPath": "业务流程/demo/MaxCompute",
-  "content": "print('hello DataWorks')",
-  "fileDescription": "SDK 示例脚本",
-  "paraValue": "bizdate=$bizdate",
-  "cronExpress": "00 30 05 * * ?",
-  "cycleType": "DAY",
-  "autoRerunTimes": 0,
-  "autoRerunIntervalMillis": 0
+@Configuration
+@Import(DataWorksSdkConfiguration.class)
+public class DataWorksIntegrationConfiguration {
 }
 ```
 
-fileType 根据工作空间支持的节点类型选择，1221 沿用参考中的 Python 示例。
-可选字段还有 connectionName、inputList、outputList、owner、resourceGroupId、
-resourceGroupIdentifier、createFolderIfNotExists（默认 false）、autoParsing。
-输入/输出依赖、数据源及调度资源组需要按实际任务配置。
-返回 data.fileId。接口只创建文件，不自动提交、发布或运行。
+这会注册 DataWorksProperties 的配置绑定、SDK Client、DataWorksSdkInvoker、DataWorksService 及 DataWorksFileLifecycleService。
 
-参考 OdpsSqlPrecheck 包含针对稽查业务的分区字段及 SQL 黑名单。本项目支持原始 SQL/Python 内容，
-未自动套用这些业务规则；如果接入特定稽查流程，可在 create 服务调用 SDK 之前增加领域校验。
+宿主须能扫描到自己的 DataWorksIntegrationConfiguration；不需要另外扫描整个 com.zdph.dksdk 包。DataWorksProperties 由入口上的 EnableConfigurationProperties 统一注册，避免同时作为 Component 注册两份。
 
-### 2. 提交脚本
+Client 使用配置中的 Endpoint、RegionId 和凭据。当前 Client 在容器初始化时创建，调用方应在容器启动前提供配置。构造 Client 本身不代表已经验证凭据或网络可用。
 
-```json
-{"projectId":10000,"fileId":1000001,"comment":"提交示例"}
+## 4. 宿主配置
+
+将以下配置合并到宿主的 application.yml 或配置中心：
+
+```yaml
+dataworks:
+  endpoint: ${DATAWORKS_ENDPOINT}
+  region-id: ${DATAWORKS_REGION_ID:default}
+  project-id: ${DATAWORKS_PROJECT_ID}
+  access-key-id: ${DATAWORKS_ACCESS_KEY_ID}
+  access-key-secret: ${DATAWORKS_ACCESS_KEY_SECRET}
+  project-env: ${DATAWORKS_PROJECT_ENV:PROD}
 ```
 
-返回 data.deploymentId，state=SUBMIT_ACCEPTED；表示提交请求已受理。
-保留发布前检查，不设置 skipAllDeployFileExtensions=true。
+由宿主提供实际环境变量或配置值。库中不内置真实环境地址、项目 ID 或凭据，也不再带 server.port、spring.application.name 等宿主配置。
 
-### 3. 查看提交状态并发布
+## 5. 调用示例
 
-```json
-{"projectId":10000,"fileId":1000001,"deploymentId":3000001,"comment":"发布示例"}
-```
+在宿主业务 Service 中通过构造器注入：
 
-deploymentId 必须来自该文件的提交请求。服务先查询提交包：
+```java
+import com.aliyun.dataworks_20240902.models.DeployFileResponse;
+import com.zdph.dksdk.dto.request.CreateScriptRequest;
+import com.zdph.dksdk.service.DataWorksFileLifecycleService;
+import org.springframework.stereotype.Service;
 
-- WAITING：提交/检查未完成；可稍后再调用本接口。
-- SUBMIT_FAILED：提交失败；根据返回 requestId/deploymentId 排查。
-- CHECK_FAILED：发布前检查失败。
-- PUBLISH_ACCEPTED：发布已受理，返回新的 publishDeploymentId；尚不代表发布完成。
+@Service
+public class TaskApplicationService {
+    private final DataWorksFileLifecycleService lifecycleService;
 
-只有提交包目标环境为开发环境、status=1、checkingStatus 为空，
-且包内文件明细包含此 fileId，才执行 DeployFile。
-FileId 与 NodeId 二选一即可，因此这个发布接口只使用 fileId，无需先查节点。
-收到 PUBLISH_ACCEPTED 后不要继续用原提交包反复调用发布接口；改为以下只读查询：
+    public TaskApplicationService(DataWorksFileLifecycleService lifecycleService) {
+        this.lifecycleService = lifecycleService;
+    }
 
-```json
-{"projectId":10000,"deploymentId":4000001,"checkOnly":true}
-```
-
-将 4000001 换成 publishDeploymentId。返回 state=STATUS_ONLY：
-status=0 就绪，1 成功，2 失败；toEnvironment=1 开发环境，2 生产环境。
-checkOnly=true 也可以查询提交包；不会调用 DeployFile。
-
-本示例没有持久化幂等记录或跨进程锁。调用方应保存 fileId、提交 deploymentId、发布 publishDeploymentId，
-避免并发重复发布，也不要使用旧提交包发布后来修改的文件；生产化可增加持久化请求去重与版本约束。
-发布本身不等于运行；日志仅在调度、冒烟测试或手动运行产生实例后才存在。
-
-### 4. 查看日志
-
-最快路径（已有实例 ID）：
-
-```json
-{"instanceId":9000001,"runNumber":1}
-```
-
-runNumber 可选，不传由云端返回该实例最近一次运行的日志。
-
-已有调度任务 ID，直接查实例并读取日志：
-
-```json
-{
-  "projectId":10000,
-  "taskId":2000001,
-  "bizdate":"2026-10-21",
-  "projectEnv":"Prod",
-  "pageNumber":1,
-  "pageSize":20,
-  "maxPages":1
+    public DeployFileResponse createAndPublish(CreateScriptRequest request) {
+        return lifecycleService.createSubmitCheckAndPublish(request);
+    }
 }
 ```
 
-兼容旧代码中调度节点的叫法：请求 `nodeId` 是 `taskId` 的别名，
-仅适用于已有的**调度任务 ID**，不能填写新版 ListNodes 的数据开发节点 id。
+CreateScriptRequest 的文件目录、类型、代码和 inputList 必须对应目标平台实际值。单独调用创建、提交、查询等能力时，注入 DataWorksService。
 
-只有文件名时：
+组合接口最多查询提交状态 10 次、间隔 3 秒，提交成功后发布。返回 DeployFileResponse.body.data 是新生成的发布包 ID，表示发布已受理；最终结果使用 DataWorksService.getDeployment 查询。
 
-```json
-{
-  "projectId":10000,
-  "fileName":"python_demo",
-  "bizdate":"2026-10-21",
-  "projectEnv":"Prod",
-  "pageNumber":1,
-  "pageSize":20,
-  "maxPages":2
-}
-```
+组合流程中途失败可能已经创建文件或提交包，当前不执行自动回滚，也没有幂等去重；调用方应结合异常中的 requestId 与平台记录处理，避免直接重试导致重复创建。
 
-先分页 ListNodes，过滤名称完全相等的节点；发现多个同名节点返回 409 AMBIGUOUS_NODE。
-可传 containerId、scene 缩小范围，或改用 taskId。最多检查配置中的 max-node-pages 页，
-到上限仍不能确认唯一性时明确报错；不选择不确定的第一个节点。
-节点匹配后从 taskId 查询实例；若尚无 taskId，返回 NODE_HAS_NO_TASK。
+## 6. 构建及内网分发
 
-bizdate 必填（按 instanceId 查询除外），按 dataworks.bizdate-zone（默认 Asia/Shanghai）
-转换成当天零点的毫秒时间戳；不会隐式查询所有历史记录。
-Prod/Dev 及旧写法 PROD/DEV 均接受。实例按 Id Desc 查询。
-pageSize=1..100，maxPages=1..5，默认只读一页；需要批量时增加 maxPages。
-第一页不会为了统计总数再请求一次。同一 instanceId 的不同 runNumber 分别保留。
+以下为交付时使用的命令示例，本次修改没有执行编译或测试。
 
-返回：
-
-```json
-{
-  "success":true,
-  "code":"OK",
-  "message":"请求处理成功，业务状态请查看 data",
-  "requestId":null,
-  "data":{
-    "taskId":2000001,
-    "nodeId":null,
-    "totalCount":30,
-    "pagesFetched":1,
-    "nextPageNumber":2,
-    "hasMore":true,
-    "complete":true,
-    "logs":[{
-      "instanceId":9000001,
-      "taskId":2000001,
-      "taskName":"python_demo",
-      "runNumber":1,
-      "status":"Success",
-      "bizdate":1792512000000,
-      "startedTime":null,
-      "finishedTime":null,
-      "logContent":"...",
-      "logSuccess":true,
-      "errorCode":null,
-      "errorMessage":null,
-      "requestId":"aliyun-request-id"
-    }]
-  }
-}
-```
-
-hasMore=true 时，使用相同筛选条件及 pageSize，下一次传 nextPageNumber。
-complete 表示本次返回的日志是否全部读取成功，不表示已读完所有页。
-聚合中某条日志失败会保留该条的 errorCode/requestId，complete=false，其他日志照常返回；
-可根据失败条目的 instanceId/runNumber 重查。实例列表或节点查询失败则整个请求报错。
-聚合时间预算为 60 秒，在每次下游请求前检查，最多再加一次正在进行的 SDK 调用耗时。
-超过预算返回 504，请减少每页条数或直接查指定实例。
-这是在线分页，云端实例列表变化时可能需要重查，不保证跨请求的快照一致性。
-
-## 验证范围
-
-单元测试使用 SDK 真实模型与 mock client/gateway，覆盖发布状态、文件归属、检查中/检查失败、
-分页续读、同名节点、taskId 映射、重跑日志、部分失败、超时取消及中断。
-MVC 测试覆盖请求校验和 JSON 绑定；启动测试验证 Spring 配置可装配。
-凭据构建测试只构造和关闭 SDK 客户端，不发送请求。不会自动创建、提交或发布任何云端文件。
-
-### Spring Boot 真实环境测试
-
-`DksdkDemoApplicationTests` 使用 `@SpringBootTest(webEnvironment = NONE)` 启动完整 Spring 容器，
-自动注入 `DataWorksController`，可直接运行创建、提交、状态查询、发布和日志查询方法。
-默认执行 `mvn test` 时，所有真实云端调用都会跳过；必须显式开启，防止误操作云端资源。
-
-先配置凭据和项目：
+在本项目根目录，使用 JDK 8 和准备完整的本地 Maven 仓库：
 
 ```powershell
-$env:ALIBABA_CLOUD_ACCESS_KEY_ID = "实际 AccessKey ID"
-$env:ALIBABA_CLOUD_ACCESS_KEY_SECRET = "实际 AccessKey Secret"
-$env:DATAWORKS_PROJECT_ID = "10000"
+mvn -o "-Dmaven.repo.local=D:\apache-maven-3.5.3\conf\dk-rep" clean package
 ```
 
-只读查询发布包状态：
+输出为 `target/dksdk-1.0.0-SNAPSHOT.jar`。交付前必须 clean，避免包名迁移或删除启动类后，target/classes 还残留旧 class。本项目无 Boot repackage，主类文件应直接位于 com/zdph/dksdk 下，不应出现 BOOT-INF/classes。
+
+如果使用自定义 settings，内外网需保持相同 settings/仓库 ID、Maven 版本和插件版本，并显式指定正确的本地仓库。离线仓库需要包含普通依赖、其 POM/父 POM/BOM，以及构建插件及插件依赖。不要只复制业务 JAR。
+
+无私服时，交付文件至少包括：
+
+- dksdk 的 JAR 和同版本 pom.xml。
+- 本 README、接口文档与配置示例。
+- 公司版 DataWorks SDK 的 JAR、POM，以及宿主本地仓库缺少的其他依赖。
+
+先将公司 DataWorks SDK 按原坐标安装到调用方仓库，再安装 dksdk。安装 dksdk 时指定交付 POM，保留依赖信息：
 
 ```powershell
-mvn '-Dtest=DksdkDemoApplicationTests#deploymentStatusTest' `
-  '-Ddataworks.live-test.enabled=true' `
-  '-Ddataworks.live-test.deployment-id=3000001' test
+mvn -o "-Dmaven.repo.local=D:\apache-maven-3.5.3\conf\dk-rep" install:install-file "-Dfile=target/dksdk-1.0.0-SNAPSHOT.jar" "-DpomFile=pom.xml"
 ```
 
-创建脚本等写操作需要额外开启 `allow-writes`：
+该命令需要 install 插件和依赖已缓存。调用方执行时将 -Dfile、-DpomFile 替换为收到的文件路径。不要使用只带 JAR 并自动生成空 POM 的方式安装本库，否则会丢失依赖声明。
 
-```powershell
-mvn '-Dtest=DksdkDemoApplicationTests#createScriptTest' `
-  '-Ddataworks.live-test.enabled=true' `
-  '-Ddataworks.live-test.allow-writes=true' test
-```
+公司 SDK 4.2.5 是自备构件，不保证可从公网仓库下载；它包含部分第三方类，若宿主也使用 Tea/阿里云相关库，需要检查重复类和版本兼容。本次没有修改或重打包这个第三方 JAR。
 
-提交和发布用例还需传入 `dataworks.live-test.file-id`、
-`dataworks.live-test.deployment-id`。日志查询优先使用 `dataworks.live-test.instance-id`；
-没有实例 ID 时传 `dataworks.live-test.task-id` 和 `dataworks.live-test.bizdate=yyyy-MM-dd`。
+有内网 Maven 私服时，可将公司 SDK 与 dksdk 各自的 JAR/POM 发布到私服，由调用方按坐标引用。正式发布时建议统一改为固定发布版本，当前保留已有 SNAPSHOT 坐标。
 
-## 官方接口说明
+## 7. 依赖和验证说明
 
-- [GetDeploymentPackage](https://help.aliyun.com/zh/dataworks/developer-reference/api-dataworks-public-2024-05-18-getdeploymentpackage)
-- [DeployFile](https://help.aliyun.com/zh/dataworks/developer-reference/api-dataworks-public-2024-05-18-deployfile)
-- [ListNodes](https://help.aliyun.com/zh/dataworks/developer-reference/api-dataworks-public-2024-05-18-listnodes)
-- [ListTaskInstances](https://help.aliyun.com/zh/dataworks/developer-reference/api-dataworks-public-2024-05-18-listtaskinstances)
-- [GetTaskInstanceLog](https://help.aliyun.com/zh/dataworks/developer-reference/api-dataworks-public-2024-05-18-gettaskinstancelog)
+- 测试类、测试依赖及 Surefire 显式配置在当前交付工程中已移除；测试不是普通 JAR 的必要组成部分。
+- 保留 Spring Boot BOM 做依赖版本管理，它不启动应用，也不被当作第三方 class 合并进主 JAR。脱机解析依然需要 BOM 对应 POM 已在本地仓库。
+- 未引入 spring-boot-maven-plugin、shade 或 assembly 来生成可执行包/合并包。
+- 当前只完成静态检查，尚未编译、打包或做宿主接入验证。

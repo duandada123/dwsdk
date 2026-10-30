@@ -7,6 +7,9 @@
     <groupId>com.sinogale</groupId>
     <artifactId>dksdk</artifactId>
     <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>DataWorks Service SDK</name>
+    <description>DataWorks service library for Java 8 and Spring Boot 2 applications</description>
 
     <properties>
         <java.version>1.8</java.version>
@@ -42,6 +45,7 @@
             <artifactId>lombok</artifactId>
             <version>${lombok.version}</version>
             <scope>provided</scope>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>
@@ -51,16 +55,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
         </dependency>
         <dependency>
             <groupId>com.aliyun.dataworks</groupId>
             <artifactId>dataworks_public_20240902</artifactId>
             <version>4.2.5</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>cn.hutool</groupId>
@@ -70,12 +74,18 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <!-- 公共库不携带宿主应用的默认配置。 -->
+                <excludes>
+                    <exclude>application*.yml</exclude>
+                    <exclude>application*.yaml</exclude>
+                    <exclude>application*.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.2</version>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

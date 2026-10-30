@@ -1,15 +1,17 @@
 # DataWorksService 接口文档
 
-更新时间：2026-10-26。适用于当前 dksdk 源码、Java 8，以及 `dataworks_public_20240902:4.2.5`。
+更新时间：2026-10-30。适用于当前 dksdk 源码、Java 8，以及 `dataworks_public_20240902:4.2.5`。
 
-本文以 `com.sinogale.dksdkdemo.service.DataWorksService` 实际实现为准，结合所提供的飞天企业版 `enterprise_v318_6_ST` API 文档整理。示例 ID、目录、节点名称均需替换为目标环境实际值。
+本文以 `com.zdph.dksdk.service.DataWorksService` 实际实现为准，结合所提供的飞天企业版 `enterprise_v318_6_ST` API 文档整理。示例 ID、目录、节点名称均需替换为目标环境实际值。
+
+普通 JAR 接入、Bean 注册及离线交付方式见 [项目说明](../README.md)。调用方使用 `@Import(DataWorksSdkConfiguration.class)`，并在自己的应用中提供配置和校验实现。
 
 ## 调用约定
 
 - 通过 Spring 注入 `DataWorksService`，直接调用 Java 方法；本文不定义 HTTP 地址。
 - JSON 示例用于展示 Java 对象字段。普通 Response 按小驼峰字段展示；SDK 原生 Response 的 `body`、`headers` 按 Java 属性结构展示，实际 JSON 键名取决于序列化方式。当前 4.2.5 SDK 这两个原生 Response 没有顶层 statusCode 属性。
 - 示例可省略不涉及的可选字段，不代表这些字段不存在。表中的“必填”按当前 Service 校验及公司版接口要求说明。
-- `projectId`、默认 `projectEnv`、`regionId`、`endpoint` 和鉴权信息来自 `dataworks.*` 配置。公司 PDF 要求 `RegionId=default`。当前 Client 设置了 regionId，`runScript/queryExecution` 还显式设置请求 RegionId，其余本文方法未在请求对象中显式设置；是否需要补传应以公司环境为准。
+- `projectId`、默认 `projectEnv`、`regionId`、`endpoint` 和鉴权信息来自调用方的 `dataworks.*` 配置，SDK JAR 不携带 application.yml。公司 PDF 要求 `RegionId=default`。创建、提交、提交状态查询、直接发布、运行及运行状态查询已显式传 RegionId；部分节点/日志查询与 deploy 的发布分支仍未显式传入，需以公司环境核验。
 - `fileId` 是开发文件 ID；`nodeId` 是调度节点 ID；`deploymentId` 是提交/发布包 ID；`dagId` 是运行工作流 ID；`instanceId` 是实际执行实例 ID，不能相互替代。
 - `SUBMIT_ACCEPTED`、`PUBLISH_ACCEPTED`、`RUN_ACCEPTED` 表示请求已受理，最终结果需另行查询。
 - 参数校验失败抛 `ConstraintViolationException` 或 `IllegalArgumentException`；SDK/上游调用失败抛 `DataWorksApiException`，通过 `getCode()`、`getMessage()`、`getRequestId()` 获取错误信息。当前返回值没有统一 `ApiResponse` 外层。
@@ -572,7 +574,7 @@ instanceId 与 nodeId 必须且只能填一个。运行环境固定取 `datawork
 | 项目 | 当前代码与提供的 PDF 差异 |
 | --- | --- |
 | 查询运行状态 | PDF 要求 NodeId，当前 queryExecution 不传；PDF 页码上限 100，DTO 上限 1000000。 |
-| RegionId | PDF 要求 default；多数方法只在 Client 配置中设置，未显式设置到请求对象。 |
+| RegionId | PDF 要求 default；getNodesInfo、日志查询及 deploy 的发布分支仍未在请求对象中显式设置，其他已补充方法见调用约定。 |
 | 运行并行语义 | 公司 PDF 和当前 DTO 注释对 parallelism 描述不同，应按部署版本确认。 |
 | 运行返回示例 | RunCycleDagNodes PDF 字段表标为 List，但示例写成标量 111；当前 SDK 类型及封装均为 List<Long>。 |
 | 请求追踪 ID | RunCycleDagNodes PDF 将 RequestId 描述为区域 ID，疑为文档笔误；当前封装作为请求追踪 ID 返回。 |
